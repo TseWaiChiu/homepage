@@ -1,63 +1,92 @@
-const content_dir = 'contents/'
-const config_file = 'config.yml'
-const section_names = ['home', 'awards', 'experience', 'publications'];
+const contentDir = 'contents/';
+const configFile = 'config.yml';
+const sectionNames = ['home', 'awards', 'experience', 'publications'];
 
+async function fetchText(path) {
+    const response = await fetch(path);
+    if (!response.ok) {
+        throw new Error(`Failed to load ${path}: HTTP ${response.status}`);
+    }
+    return response.text();
+}
 
-window.addEventListener('DOMContentLoaded', event => {
+function setSectionVisibility(name, visible) {
+    const section = document.getElementById(name);
+    const navItem = document.querySelector(`#navbarResponsive a[href="#${name}"]`)?.closest('.nav-item');
 
-    // Activate Bootstrap scrollspy on the main nav element
+    if (section) {
+        section.hidden = !visible;
+    }
+    if (navItem) {
+        navItem.hidden = !visible;
+    }
+}
+
+window.addEventListener('DOMContentLoaded', async () => {
+    // Activate Bootstrap scrollspy on the main nav element.
     const mainNav = document.body.querySelector('#mainNav');
     if (mainNav) {
         new bootstrap.ScrollSpy(document.body, {
             target: '#mainNav',
             offset: 74,
         });
-    };
+    }
 
-    // Collapse responsive navbar when toggler is visible
+    // Collapse the responsive navbar after a navigation link is selected.
     const navbarToggler = document.body.querySelector('.navbar-toggler');
-    const responsiveNavItems = [].slice.call(
-        document.querySelectorAll('#navbarResponsive .nav-link')
-    );
-    responsiveNavItems.map(function (responsiveNavItem) {
+    const responsiveNavItems = [...document.querySelectorAll('#navbarResponsive .nav-link')];
+    responsiveNavItems.forEach((responsiveNavItem) => {
         responsiveNavItem.addEventListener('click', () => {
-            if (window.getComputedStyle(navbarToggler).display !== 'none') {
+            if (navbarToggler && window.getComputedStyle(navbarToggler).display !== 'none') {
                 navbarToggler.click();
             }
         });
     });
 
+    try {
+        const text = await fetchText(contentDir + configFile);
+        const config = jsyaml.load(text);
 
-    // Yaml
-    fetch(content_dir + config_file)
-        .then(response => response.text())
-        .then(text => {
-            const yml = jsyaml.load(text);
-            Object.keys(yml).forEach(key => {
-                try {
-                    document.getElementById(key).innerHTML = yml[key];
-                } catch {
-                    console.log("Unknown id and value: " + key + "," + yml[key].toString())
+        Object.entries(config).forEach(([key, value]) => {
+            const element = document.getElementById(key);
+            if (element) {
+                element.innerHTML = value ?? '';
+            }
+        });
+
+        const currentYear = document.getElementById('current-year');
+        if (currentYear) {
+            currentYear.textContent = new Date().getFullYear();
+        }
+    } catch (error) {
+        console.error(error);
+    }
+
+    marked.use({ mangle: false, headerIds: false });
+
+    await Promise.all(sectionNames.map(async (name) => {
+        try {
+            const markdown = await fetchText(`${contentDir}${name}.md`);
+            const hasContent = markdown.trim().length > 0;
+            setSectionVisibility(name, hasContent);
+
+            if (hasContent) {
+                const container = document.getElementById(`${name}-md`);
+                if (container) {
+                    container.innerHTML = marked.parse(markdown);
                 }
+            }
+        } catch (error) {
+            setSectionVisibility(name, false);
+            console.error(error);
+        }
+    }));
 
-            })
-        })
-        .catch(error => console.log(error));
-
-
-    // Marked
-    marked.use({ mangle: false, headerIds: false })
-    section_names.forEach((name, idx) => {
-        fetch(content_dir + name + '.md')
-            .then(response => response.text())
-            .then(markdown => {
-                const html = marked.parse(markdown);
-                document.getElementById(name + '-md').innerHTML = html;
-            }).then(() => {
-                // MathJax
-                MathJax.typeset();
-            })
-            .catch(error => console.log(error));
-    })
-
-}); 
+    if (window.MathJax?.typesetPromise) {
+        try {
+            await MathJax.typesetPromise();
+        } catch (error) {
+            console.error('MathJax rendering failed:', error);
+        }
+    }
+});
